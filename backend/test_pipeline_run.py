@@ -77,7 +77,7 @@ async def test_pipeline():
         uploaded_by="mock_user",
         storage_path=relative_path,
         file_size=len(mock_content),
-        status="uploaded",
+        status="UPLOADED",
         version="1.0",
         mime_type="text/plain"
     )
@@ -95,11 +95,11 @@ async def test_pipeline():
     print(f"Chunks Count: {doc.chunk_count}")
     print(f"Embeddings Count: {doc.embedding_count}")
     print(f"Classified Department: {doc.department}")
-    print(f"Extracted Metadata: {doc.extracted_metadata}")
+    print(f"Extracted Metadata: {doc.metadata}")
     print(f"Knowledge Score: {doc.knowledge_score}")
     print(f"Error Message: {doc.error_message}")
     
-    if doc.status == "ready":
+    if str(doc.status.value).lower() == "ready" if hasattr(doc.status, 'value') else str(doc.status).lower() == "ready":
         print("\n--- Testing Semantic Search ---")
         # Generate search and print hits
         from app.services.embedding_service import EmbeddingService

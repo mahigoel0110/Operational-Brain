@@ -18,11 +18,16 @@ class Settings(BaseSettings):
 
     # Qdrant / Vector configuration
     QDRANT_URL: str = ""  # If empty, runs in-memory/local storage mode
-    QDRANT_COLLECTION_NAME: str = "documents_general"
+    QDRANT_COLLECTION_NAME: str = "documents_v2"
 
     # Chunking configuration
-    CHUNK_SIZE: int = 512
-    CHUNK_OVERLAP: int = 64
+    CHUNK_SIZE: int = 200
+    CHUNK_OVERLAP: int = 40
+
+    # Neo4j configuration
+    NEO4J_URI: str = ""
+    NEO4J_USERNAME: str = ""
+    NEO4J_PASSWORD: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

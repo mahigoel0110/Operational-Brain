@@ -18,16 +18,17 @@ def map_document_to_response(doc: DocumentModel) -> DocumentResponse:
         uploaded_by=doc.uploaded_by,
         storage_path=doc.storage_path,
         file_size=doc.file_size,
-        status=doc.status,
-        version=doc.version,
-        mime_type=doc.mime_type,
+        status=doc.status.value if hasattr(doc.status, 'value') else doc.status,
+        processing_progress=doc.processing_progress,
+        current_step=doc.current_step,
+        processing_started_at=doc.processing_started_at,
+        processing_completed_at=doc.processing_completed_at,
         chunk_count=doc.chunk_count,
         embedding_count=doc.embedding_count,
-        extracted_metadata=doc.extracted_metadata,
         knowledge_score=doc.knowledge_score,
-        learning_progress=doc.learning_progress,
-        error_message=doc.error_message,
         department=doc.department,
+        error_message=doc.error_message,
+        metadata=doc.metadata,
         created_at=doc.created_at,
         updated_at=doc.updated_at
     )
@@ -90,8 +91,9 @@ async def get_document_status(
     return {
         "id": str(doc.id),
         "name": doc.name,
-        "status": doc.status,
-        "learning_progress": doc.learning_progress,
+        "status": doc.status.value if hasattr(doc.status, 'value') else doc.status,
+        "processing_progress": doc.processing_progress,
+        "current_step": doc.current_step,
         "chunk_count": doc.chunk_count,
         "embedding_count": doc.embedding_count,
         "error_message": doc.error_message
@@ -106,8 +108,10 @@ async def reprocess_document(
     doc = await DocumentService.get_document_by_id(id)
     
     # Reset processing fields
-    doc.status = "uploaded"
-    doc.learning_progress = 0.0
+    from app.models.document import DocumentStatus
+    doc.status = DocumentStatus.UPLOADED
+    doc.processing_progress = 0
+    doc.current_step = "Uploaded"
     doc.chunk_count = 0
     doc.embedding_count = 0
     doc.error_message = None
@@ -124,7 +128,7 @@ async def get_document_metadata(
     current_user: User = Depends(get_current_user)
 ):
     doc = await DocumentService.get_document_by_id(id)
-    return doc.extracted_metadata
+    return doc.metadata
 
 @router.get("/workspace/{workspace_id}/knowledge-summary")
 async def get_workspace_knowledge_summary(
@@ -148,7 +152,7 @@ async def get_workspace_knowledge_summary(
     avg_score = sum(d.knowledge_score for d in ready_docs) / len(ready_docs) if ready_docs else 0.0
     
     # Calculate progress
-    avg_progress = sum(d.learning_progress for d in docs) / doc_count if doc_count else 0.0
+    avg_progress = sum(d.processing_progress for d in docs) / doc_count if doc_count else 0.0
 
     # Required departments check
     existing_depts = {d.department.lower() for d in ready_docs if d.department}
@@ -243,6 +247,29 @@ async def get_workspace_knowledge_health(
         "document_relationships": relationships
     }
 
+def normalize_query(query: str) -> str:
+    q_lower = query.lower().strip()
+    mapping = {
+        "p101": "Pump P-101",
+        "pump p101": "Pump P-101",
+        "pm": "Preventive Maintenance",
+        "sop": "Standard Operating Procedure",
+        "compressor": "Compressor Equipment"
+    }
+    
+    if q_lower in mapping:
+        return mapping[q_lower]
+        
+    words = query.split()
+    normalized_words = []
+    for w in words:
+        clean_w = w.strip(',.!?').lower()
+        if clean_w in mapping:
+            normalized_words.append(mapping[clean_w])
+        else:
+            normalized_words.append(w)
+    return " ".join(normalized_words)
+
 class SearchRequest(BaseModel):
     query: str
     limit: int = 5
@@ -256,22 +283,86 @@ async def search_workspace_knowledge(
     from app.services.embedding_service import EmbeddingService
     from app.services.vector_store import VectorStoreService
     from app.core.config import settings
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     try:
-        # Generate search embedding
-        query_embeddings = await EmbeddingService.get_embeddings([req.query])
+        # 1. Query Normalization
+        normalized_query = normalize_query(req.query)
+
+        # 2. Generate search embedding
+        query_embeddings = await EmbeddingService.get_embeddings([normalized_query])
         if not query_embeddings:
             raise HTTPException(status_code=500, detail="Failed to generate search embedding")
         query_vector = query_embeddings[0]
+        embedding_dim = len(query_vector)
 
-        # Search Qdrant
+        # 3. Search Qdrant
         collection = settings.QDRANT_COLLECTION_NAME or "documents_general"
+        
+        # Fetch more to allow re-ranking and filtering
+        fetch_limit = req.limit * 3
         results = await VectorStoreService.search_workspace(
             collection_name=collection,
             workspace_id=workspace_id,
             query_vector=query_vector,
-            limit=req.limit
+            limit=fetch_limit
         )
-        return {"query": req.query, "results": results}
+
+        # 4. Result Ranking & Thresholding
+        def rank_score(res):
+            score = res['score']
+            text = res.get('text', '').lower()
+            heading = res.get('heading', '').lower()
+            q_lower = normalized_query.lower()
+            
+            if q_lower in text:
+                score += 0.05
+            if q_lower in heading:
+                score += 0.02
+            return score
+
+        for res in results:
+            res['ranked_score'] = rank_score(res)
+
+        ranked_results = sorted(results, key=lambda x: x['ranked_score'], reverse=True)
+        
+        # Filter low scores to prevent hallucinations
+        top_results = [r for r in ranked_results if r['score'] >= 0.2][:req.limit]
+        
+        formatted_results = []
+        for r in top_results:
+            formatted_results.append({
+                "title": r.get("title", r.get("heading", "Untitled Document")),
+                "page": r.get("page_number", 1),
+                "chunk": str(r.get("id", "")),
+                "similarity": r.get("ranked_score", r.get("score", 0)),
+                "document": str(r.get("document_id", "")),
+                "department": r.get("department", "General"),
+                "document_type": r.get("document_type", "Document"),
+                "evidence": r.get("text", ""),
+                
+                # Backward compatibility for frontend
+                "page_number": r.get("page_number", 1),
+                "ranked_score": r.get("ranked_score", r.get("score", 0)),
+                "text": r.get("text", "")
+            })
+
+        # 5. Debug Logging
+        top_score = top_results[0]['score'] if top_results else "N/A"
+        logger.info(
+            f"[SEARCH]\n"
+            f"Workspace:\n{workspace_id}\n"
+            f"Query:\n{req.query}\n"
+            f"Normalized:\n{normalized_query}\n"
+            f"Embedding:\n{embedding_dim}\n"
+            f"Collection:\n{collection}\n"
+            f"Results (Hits):\n{len(top_results)} (out of {len(results)} searched chunks)\n"
+            f"Top Score:\n{top_score}"
+        )
+
+        return {"query": req.query, "results": formatted_results}
     except Exception as e:
+        logger.exception("Search failed")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")

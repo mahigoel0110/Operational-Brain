@@ -108,7 +108,26 @@ Snippet:
             department = "Finance"
         elif "operations" in dept_lower or "prod" in dept_lower or "operator" in dept_lower:
             department = "Operations"
+        
+                # Document Type
+        document_type = "General"
 
+        patterns = {
+            "Manual": ["manual", "operation manual"],
+            "SOP": ["sop", "standard operating procedure"],
+            "Inspection": ["inspection", "inspection report"],
+            "Maintenance": ["maintenance", "preventive maintenance"],
+            "P&ID": ["p&id", "piping and instrumentation"],
+            "Permit": ["permit to work"],
+            "JSA": ["job safety analysis"],
+            "Checklist": ["checklist"],
+        }
+
+        for dtype, keywords in patterns.items():
+            if any(keyword in dept_lower for keyword in keywords):
+                document_type = dtype
+                break
+        
         # 4. Extract version
         version = "1.0"
         version_match = re.search(r"(?:version|rev|revision|v)\s*[:\.]?\s*(\d+\.\d+)", text, re.IGNORECASE)
@@ -122,9 +141,92 @@ Snippet:
 
         # 6. Extracted equipment tags / machines
         # Find tags like Pump P-101, Compressor C-202, Valve V-009, etc.
-        machines = re.findall(r"\b(pump|compressor|valve|turbine|generator|reactor|boiler)\s+([a-zA-Z\d\-]{2,10})\b", text, re.IGNORECASE)
-        machine_tags = [f"{m[0].title()} {m[1].upper()}" for m in machines]
-        machine_tags = list(set(machine_tags))[:8]
+        equipment_tags = re.findall(
+            r"\b[A-Z]{1,4}-\d{2,4}\b",
+            text
+        )
+
+        equipment_tags = list(set(equipment_tags))
+
+        machines = re.findall(
+            r"\b(pump|compressor|valve|turbine|generator|reactor|boiler|motor)\s+([A-Za-z0-9\-]{2,10})",
+            text,
+            re.IGNORECASE
+        )
+
+        machine_tags = list(set([
+            f"{m[0].title()} {m[1].upper()}"
+            for m in machines
+        ]))
+        
+        #standards
+        standards = re.findall(
+            r"(ISO\s*\d+|API\s*\d+|OISD[- ]?STD[- ]?\d+)",
+            text,
+            re.IGNORECASE,
+        )
+
+        standards = list(set(standards))
+
+        #risks
+        risk = "Low"
+
+        if "critical" in dept_lower:
+            risk = "Critical"
+
+        elif "high risk" in dept_lower:
+            risk = "High"
+
+        elif "medium risk" in dept_lower:
+            risk = "Medium"
+        
+        keywords = [
+
+            "pump",
+
+            "compressor",
+
+            "valve",
+
+            "boiler",
+
+            "bearing",
+
+            "seal",
+
+            "lubrication",
+
+            "pipeline",
+
+            "inspection",
+
+            "maintenance",
+
+            "shutdown",
+
+            "startup",
+
+            "pressure",
+
+            "temperature",
+
+            "oil",
+
+            "gas",
+
+            "safety",
+
+            "fire"
+
+        ]
+
+        tags = []
+
+        for keyword in keywords:
+
+            if keyword in dept_lower:
+
+                tags.append(keyword)
 
         # 7. Extract people (heuristics - e.g., Approved by X, Prepared by Y)
         people = []
@@ -145,7 +247,14 @@ Snippet:
             policies.append(title)
 
         # Hackathon metrics calculation
-        confidence_score = 0.65
+        confidence_score = 0.50
+
+        confidence_score += len(machine_tags) * 0.03
+        confidence_score += len(equipment_tags) * 0.05
+        confidence_score += len(standards) * 0.05
+        confidence_score += len(tags) * 0.01
+
+        confidence_score = min(confidence_score, 0.99)
         if machine_tags:
             confidence_score += 0.1
         if len(dates) > 0:
@@ -155,7 +264,7 @@ Snippet:
         confidence_score = min(0.95, confidence_score)
 
         completeness_score = min(0.9, 0.4 + (len(machine_tags)*0.1) + (len(dates)*0.1) + (len(people)*0.1))
-
+    
         return {
             "title": title,
             "department": department,
@@ -165,7 +274,12 @@ Snippet:
             "people": people,
             "organizations": ["OperationalBrain Corp"],
             "products": [],
+            "document_type": document_type,
             "machines": machine_tags,
+            "equipment": equipment_tags,
+            "standards": standards,
+            "risk": risk,
+            "tags": tags,
             "policies": policies,
             "sops": sops,
             "confidence_score": round(confidence_score, 2),

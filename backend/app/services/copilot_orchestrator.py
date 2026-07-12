@@ -95,8 +95,12 @@ class CopilotOrchestrator:
         except Exception:
             pass
 
+        logger.info("[QUERY RECEIVED]")
+
         expanded_query = QueryExpansionService.expand(message, industry)
         equipment_mentioned = QueryExpansionService.extract_equipment_mentions(message)
+
+        logger.info("[QUERY EXPANDED]")
 
         # ── 2. Knowledge retrieval ───────────────────────────────────────────
         doc_ctx_id = document_context.get("document_id") if document_context else None
@@ -111,7 +115,10 @@ class CopilotOrchestrator:
         interview_answers = context["interview_answers"]
         company_profile   = context["company_profile"]
         graph_entities    = context["graph_entities"]
+        graph_context_text = context.get("graph_context", "")
         retrieval_stats   = context["stats"]
+
+        logger.info("[CONTEXT BUILT]")
 
         # If document context provides an excerpt, prepend it as a synthetic chunk
         if document_context and document_context.get("excerpt"):
@@ -126,14 +133,25 @@ class CopilotOrchestrator:
             }
             chunks = [synthetic] + chunks
 
+        # Build the unified structured context object for reasoning
+        knowledge_context = {
+            "document_chunks": chunks,
+            "interview_answers": interview_answers,
+            "company_profile": company_profile,
+            "graph_summary": graph_context_text,
+            "related_entities": graph_entities,
+            "images": [], # Extensible for future
+            "tables": []  # Extensible for future
+        }
+
         # ── 3. LLM reasoning ─────────────────────────────────────────────────
         reasoning_result = await ReasoningService.generate(
             query=message,
-            chunks=chunks,
-            interview_answers=interview_answers,
-            company_profile=company_profile,
+            knowledge_context=knowledge_context,
             conversation_history=conversation_history,
         )
+
+        logger.info("[REASONING COMPLETE]")
 
         answer          = reasoning_result["answer"]
         reasoning_text  = reasoning_result["reasoning"]
@@ -176,6 +194,8 @@ class CopilotOrchestrator:
             graph_entities=graph_entities,
             knowledge_missing=knowledge_missing,
         )
+
+        logger.info(f"[CONFIDENCE = {confidence}]")
 
         # ── 8. Suggestions ───────────────────────────────────────────────────
         suggestions = SuggestionEngine.suggest(
@@ -265,6 +285,7 @@ class CopilotOrchestrator:
         await session.save()
 
         # ── 11. Build response dict ──────────────────────────────────────────
+        logger.info("[ANSWER GENERATED]")
         return {
             "answer":               answer,
             "reasoning":            reasoning_text,

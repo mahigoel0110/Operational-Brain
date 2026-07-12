@@ -1,87 +1,152 @@
 import os
 import logging
 from datetime import datetime, UTC
-from app.models.document import DocumentModel
+from app.models.document import DocumentModel, DocumentStatus
 from app.services.extractor import DocumentExtractor
 from app.services.chunker import TextChunker
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store import VectorStoreService
-from app.services.metadata_extractor import MetadataExtractor
+from app.services.metadata_service import MetadataExtractor
+from app.services.drawing_classifier import DrawingClassifier
+from app.services.drawing_pipeline import DrawingPipeline
+from app.services.ai.graph.graph_builder import graph_builder
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Resolve base dir for local uploads
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BASE_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))
+    )
+)
 
 class DocumentPipeline:
+    @staticmethod
+    async def update_status(
+        document: DocumentModel,
+        status: DocumentStatus,
+        progress: int,
+        current_step: str,
+        error: str | None = None,
+    ):
+        document.status = status
+        document.processing_progress = progress
+        document.current_step = current_step
+        document.updated_at = datetime.now(UTC)
+        if error:
+            document.error_message = error
+        await document.save()
 
     @staticmethod
     async def process_document(document_id: str):
-        """
-        Asynchronously runs the full Phase 2 document ingestion pipeline.
-        Status transitions: uploaded -> processing -> embedding -> ready (or failed)
-        """
         doc = await DocumentModel.get(document_id)
-        if not doc:
-            logger.error(f"Ingestion Pipeline error: Document {document_id} not found in database.")
+        if doc is None:
+            logger.error(f"Document {document_id} not found.")
             return
 
         try:
-            # 1. Update status to 'processing'
-            doc.status = "processing"
-            doc.learning_progress = 0.2
-            doc.updated_at = datetime.now(UTC)
-            await doc.save()
-            logger.info(f"Pipeline started for document {document_id} ({doc.name})")
+            logger.info(f"Pipeline started for {doc.name}")
 
-            # Resolve absolute storage path
             abs_path = os.path.join(BASE_DIR, doc.storage_path)
             if not os.path.exists(abs_path):
-                raise FileNotFoundError(f"Document file not found on disk at {abs_path}")
+                raise FileNotFoundError(f"File not found: {abs_path}")
 
-            # 2. Extract Text
-            text = DocumentExtractor.extract_text(abs_path)
-            if not text or not text.strip():
-                raise ValueError("No text content could be extracted from document.")
-            logger.info(f"Successfully extracted {len(text)} characters from {doc.name}")
-
-            # Update progress
-            doc.learning_progress = 0.4
-            await doc.save()
-
-            # 3. Intelligent Chunking
-            chunks = TextChunker.chunk_text(
-                text=text, 
-                chunk_size=settings.CHUNK_SIZE, 
-                chunk_overlap=settings.CHUNK_OVERLAP
+            # 1. EXTRACTION
+            await DocumentPipeline.update_status(
+                document=doc,
+                status=DocumentStatus.EXTRACTING,
+                progress=10,
+                current_step="Extracting text"
             )
-            if not chunks:
-                raise ValueError("Intelligent chunker returned 0 chunks from text.")
-            logger.info(f"Chunked document {doc.name} into {len(chunks)} segments.")
+            logger.info("Starting extraction...")
+            extraction = DocumentExtractor.extract(abs_path)
 
-            # Update progress & state
-            doc.status = "embedding"
-            doc.learning_progress = 0.6
-            doc.chunk_count = len(chunks)
-            await doc.save()
+            if not extraction.success:
+                raise Exception(f"Extraction failed: {extraction.error}")
 
-            # 4. Extract Structured Metadata
+            text = extraction.text
+            if not text.strip():
+                raise Exception("No text extracted.")
+
+            # OCR Step (Only if used_ocr is true)
+            if extraction.used_ocr:
+                await DocumentPipeline.update_status(
+                    document=doc,
+                    status=DocumentStatus.OCR,
+                    progress=25,
+                    current_step="Applying OCR"
+                )
+
+            # 2. METADATA
+            await DocumentPipeline.update_status(
+                document=doc,
+                status=DocumentStatus.METADATA,
+                progress=40,
+                current_step="Extracting metadata"
+            )
+            logger.info("Extracting metadata...")
             metadata = MetadataExtractor.extract_metadata(text, doc.name)
-            logger.info(f"Extracted metadata keys: {list(metadata.keys())}")
 
-            # 5. Embed Chunks
+            # Check if Engineering Drawing
+            is_drawing, drawing_type = DrawingClassifier.is_drawing(text, doc.name)
+            if is_drawing:
+                await DocumentPipeline.update_status(
+                    document=doc,
+                    status=DocumentStatus.METADATA,
+                    progress=50,
+                    current_step="Extracting Drawing Intelligence"
+                )
+                entity_chunks, metadata = DrawingPipeline.process_drawing(
+                    abs_path, metadata, drawing_type, text
+                )
+
+
+            # 3. CHUNKING
+            await DocumentPipeline.update_status(
+                document=doc,
+                status=DocumentStatus.CHUNKING,
+                progress=55,
+                current_step="Chunking document"
+            )
+            logger.info("Creating chunks...")
+            if is_drawing:
+                chunks = [{"text": c, "metadata": {}} for c in entity_chunks]
+            else:
+                chunks = TextChunker.chunk_text(
+                    text=text,
+                    chunk_size=settings.CHUNK_SIZE,
+                    chunk_overlap=settings.CHUNK_OVERLAP,
+                )
+
+            if not chunks:
+                raise Exception("Chunking produced 0 chunks.")
+            
+            doc.chunk_count = len(chunks)
+
+            # 4. EMBEDDING
+            await DocumentPipeline.update_status(
+                document=doc,
+                status=DocumentStatus.EMBEDDING,
+                progress=75,
+                current_step="Generating embeddings"
+            )
+            logger.info("Generating embeddings...")
             chunk_texts = [chunk["text"] for chunk in chunks]
             embeddings = await EmbeddingService.get_embeddings(chunk_texts)
+
             if not embeddings:
-                raise ValueError("Embedding service returned empty embeddings.")
-            logger.info(f"Generated embeddings for {len(embeddings)} chunks.")
+                raise Exception("Embedding generation failed.")
 
-            # Update progress
-            doc.learning_progress = 0.8
-            await doc.save()
+            doc.embedding_count = len(embeddings)
 
-            # 6. Index into Qdrant Vector DB
+            # 5. INDEXING
+            await DocumentPipeline.update_status(
+                document=doc,
+                status=DocumentStatus.INDEXING,
+                progress=90,
+                current_step="Indexing in vector store"
+            )
+            logger.info("Uploading vectors...")
             collection = settings.QDRANT_COLLECTION_NAME or "documents_general"
             await VectorStoreService.upsert_chunks(
                 collection_name=collection,
@@ -89,29 +154,49 @@ class DocumentPipeline:
                 document_id=str(doc.id),
                 chunks=chunks,
                 embeddings=embeddings,
-                document_metadata=metadata
+                document_metadata=metadata,
             )
 
-            # Calculate metrics
-            knowledge_score = (metadata.get("confidence_score", 0.7) + metadata.get("completeness_score", 0.7)) / 2.0
+            # 6. KNOWLEDGE GRAPH
+            await DocumentPipeline.update_status(
+                document=doc,
+                status=DocumentStatus.INDEXING,
+                progress=95,
+                current_step="Building Knowledge Graph"
+            )
+            logger.info("Building Knowledge Graph...")
+            # Fire and forget graph building, or await it. Let's await it to ensure it completes before READY
+            await graph_builder.build_from_chunks(
+                chunks=chunks,
+                document_id=str(doc.id),
+                document_name=doc.name
+            )
 
-            # 7. Final Success State Update
-            doc.status = "ready"
-            doc.learning_progress = 1.0
-            doc.embedding_count = len(embeddings)
-            doc.extracted_metadata = metadata
-            doc.knowledge_score = round(knowledge_score, 2)
+            # 7. READY
+            knowledge_score = (
+                metadata.get("confidence_score", 0.70)
+                + metadata.get("completeness_score", 0.70)
+            ) / 2
+
+            doc.status = DocumentStatus.READY
+            doc.processing_progress = 100
+            doc.current_step = "Completed"
+            doc.processing_completed_at = datetime.now(UTC)
+            doc.metadata = metadata
             doc.department = metadata.get("department", "General")
+            doc.knowledge_score = round(knowledge_score, 2)
             doc.error_message = None
             doc.updated_at = datetime.now(UTC)
+
             await doc.save()
-            
-            logger.info(f"Pipeline completed successfully for document {document_id}")
+            logger.info(f"Pipeline completed successfully for {doc.name}")
 
         except Exception as e:
-            logger.error(f"Pipeline failed for document {document_id}: {str(e)}", exc_info=True)
-            doc.status = "failed"
-            doc.learning_progress = 0.0
-            doc.error_message = str(e)
-            doc.updated_at = datetime.now(UTC)
-            await doc.save()
+            logger.exception(e)
+            await DocumentPipeline.update_status(
+                document=doc,
+                status=DocumentStatus.FAILED,
+                progress=doc.processing_progress,
+                current_step="Failed",
+                error=str(e),
+            )

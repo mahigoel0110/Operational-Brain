@@ -17,15 +17,16 @@ class DocumentResponse(BaseModel):
     storage_path: str
     file_size: int
     status: str
-    version: str
-    mime_type: str | None = None
+    processing_progress: int
+    current_step: str
+    processing_started_at: datetime | None = None
+    processing_completed_at: datetime | None = None
     chunk_count: int = 0
     embedding_count: int = 0
-    extracted_metadata: dict = {}
     knowledge_score: float = 0.0
-    learning_progress: float = 0.0
-    error_message: str | None = None
     department: str | None = None
+    error_message: str | None = None
+    metadata: dict = {}
     created_at: datetime
     updated_at: datetime
 

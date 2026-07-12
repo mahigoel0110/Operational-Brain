@@ -21,15 +21,17 @@ from app.models.interview import InterviewAnswer, InterviewSession
 from app.models.company_profile import CompanyProfile
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store import VectorStoreService
+from app.services.ai.graph.graph_retriever import graph_retriever
+from app.services.evidence_fusion_engine import EvidenceFusionEngine
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 # How many chunks to retrieve from Qdrant
-CHUNK_LIMIT = 8
+CHUNK_LIMIT = 25
 
 # Minimum score to include a chunk
-MIN_SCORE = 0.30
+MIN_SCORE = 0.20
 
 
 class KnowledgeRetrievalService:
@@ -59,15 +61,35 @@ class KnowledgeRetrievalService:
         try:
             embeddings = await EmbeddingService.get_embeddings([expanded_query])
             if embeddings:
+                logger.info("[EMBEDDING GENERATED]")
                 collection = settings.QDRANT_COLLECTION_NAME or "documents_general"
                 raw_results = await VectorStoreService.search_workspace(
                     collection_name=collection,
                     workspace_id=workspace_id,
                     query_vector=embeddings[0],
-                    limit=CHUNK_LIMIT
+                    limit=CHUNK_LIMIT * 3
                 )
-                # Filter by minimum score
-                chunks = [r for r in raw_results if r.get("score", 0) >= MIN_SCORE]
+                
+                # Apply Result Ranking & Thresholding logic
+                q_lower = original_query.lower()
+                expanded_lower = expanded_query.lower()
+
+                for res in raw_results:
+                    score = res.get("score", 0)
+                    text = res.get("text", "").lower()
+                    heading = res.get("heading", "").lower()
+                    
+                    if q_lower in text or expanded_lower in text:
+                        score += 0.05
+                    if q_lower in heading or expanded_lower in heading:
+                        score += 0.02
+                        
+                    res["ranked_score"] = score
+
+                ranked_results = sorted(raw_results, key=lambda x: x.get("ranked_score", 0), reverse=True)
+                
+                # Filter by minimum score to capture relevant matches
+                chunks = [r for r in ranked_results if r.get("ranked_score", 0) >= MIN_SCORE][:CHUNK_LIMIT]
 
                 # If document context given, boost those chunks to the front
                 if document_context_id:
@@ -75,9 +97,14 @@ class KnowledgeRetrievalService:
                     other_chunks = [c for c in chunks if c.get("document_id") != document_context_id]
                     chunks = ctx_chunks + other_chunks
 
+                # Apply Evidence Fusion (Deduplicate, Merge Overlapping, Group by Document)
+                chunks = EvidenceFusionEngine.fuse(chunks)
+
                 # Count unique documents searched
                 doc_ids = {c.get("document_id") for c in chunks}
                 documents_searched = len(doc_ids)
+                
+                logger.info(f"[QDRANT RESULTS = {len(chunks)}]")
 
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
@@ -98,9 +125,9 @@ class KnowledgeRetrievalService:
             ).to_list()
 
             for doc in all_docs:
-                if not doc.extracted_metadata:
+                if not getattr(doc, "metadata", None):
                     continue
-                meta = doc.extracted_metadata
+                meta = doc.metadata
                 matched_entities = []
 
                 # Check machines / equipment
@@ -130,7 +157,23 @@ class KnowledgeRetrievalService:
                     })
 
         except Exception as e:
-            logger.error(f"Knowledge graph traversal failed: {e}")
+            logger.error(f"Knowledge graph traversal (MongoDB) failed: {e}")
+
+        # ── 2b. Knowledge Graph traversal (Neo4j) ─────────────────────────────
+        graph_context_text = ""
+        try:
+            # We can extract entities from the retrieved chunks to seed the graph search
+            chunk_entities = []
+            for c in chunks:
+                text = c.get("text", "")
+                # Simple extraction, or rely purely on query entities in retriever
+                pass
+            
+            graph_context_text = await graph_retriever.get_graph_context(original_query)
+            if graph_context_text:
+                logger.info("[NEO4J GRAPH CONTEXT RETRIEVED]")
+        except Exception as e:
+            logger.error(f"Neo4j Graph traversal failed: {e}")
 
         # ── 3. Interview answers (keyword matching) ──────────────────────────
         interview_answers: List[Dict[str, Any]] = []
@@ -155,9 +198,11 @@ class KnowledgeRetrievalService:
                     # Remove common stop words
                     overlap = query_words & answer_words - {
                         "the","a","an","is","are","was","were","what","how","why",
-                        "when","where","which","do","does","did","to","of","in","for"
+                        "when","where","which","do","does","did","to","of","in","for",
+                        "this","equipment","history"
                     }
-                    if len(overlap) >= 2:
+                    # Lowered overlap threshold to 1 for more robust retrieval
+                    if len(overlap) >= 1:
                         scored_answers.append({
                             "score": len(overlap),
                             "question": ans.question_text,
@@ -169,6 +214,7 @@ class KnowledgeRetrievalService:
                 # Sort by overlap score, take top 5
                 scored_answers.sort(key=lambda x: x["score"], reverse=True)
                 interview_answers = scored_answers[:5]
+                logger.info(f"[INTERVIEW ANSWERS = {len(interview_answers)}]")
 
         except Exception as e:
             logger.error(f"Interview answer retrieval failed: {e}")
@@ -191,6 +237,7 @@ class KnowledgeRetrievalService:
                     "core_business": profile.core_business or "",
                     "department_summaries": profile.department_summaries or {},
                 }
+                logger.info("[COMPANY PROFILE FOUND]")
         except Exception as e:
             logger.error(f"Company profile retrieval failed: {e}")
 
@@ -201,11 +248,13 @@ class KnowledgeRetrievalService:
             "interview_answers": interview_answers,
             "company_profile": company_profile,
             "graph_entities": graph_entities,
+            "graph_context": graph_context_text,
             "stats": {
                 "documents_searched": documents_searched,
                 "chunks_retrieved": len(chunks),
                 "interview_answers_checked": len(interview_answers),
                 "graph_entities_matched": len(graph_entities),
+                "graph_context_generated": bool(graph_context_text),
                 "company_profile_used": company_profile is not None,
                 "response_time_ms": elapsed_ms,
             },

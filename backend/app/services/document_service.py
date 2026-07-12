@@ -1,7 +1,10 @@
 import os
 import shutil
+import logging
 from datetime import datetime, UTC
 from fastapi import UploadFile, HTTPException, status
+
+logger = logging.getLogger(__name__)
 from app.models.document import DocumentModel
 from app.models.workspace import Workspace
 
@@ -9,18 +12,30 @@ from app.models.workspace import Workspace
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".txt"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".txt", ".png", ".jpg", ".jpeg"}
 
 class DocumentService:
 
     @staticmethod
     async def upload_document(file: UploadFile, workspace_id: str, uploaded_by: str) -> DocumentModel:
+        logger.info(f"[UPLOAD] Starting upload for {file.filename} in workspace {workspace_id}")
         # Validate workspace exists
         workspace = await Workspace.get(workspace_id)
         if not workspace:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Workspace not found"
+            )
+
+        # Check for duplicates
+        existing_doc = await DocumentModel.find_one(
+            DocumentModel.workspace_id == workspace_id,
+            DocumentModel.name == (file.filename or "unknown")
+        )
+        if existing_doc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A document with this name already exists in this workspace."
             )
 
         # Validate file extension
@@ -45,6 +60,7 @@ class DocumentService:
         try:
             with open(local_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
+            logger.info(f"[FILE SAVED] Successfully saved file to {local_path}")
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -58,13 +74,16 @@ class DocumentService:
         # Store storage_path as a relative path to keep it system-agnostic
         relative_path = os.path.join("uploads", workspace_id, filename).replace("\\", "/")
 
+        from app.models.document import DocumentStatus
         document = DocumentModel(
             name=file.filename or "unknown",
             workspace_id=workspace_id,
             uploaded_by=uploaded_by,
             storage_path=relative_path,
             file_size=file_size,
-            status="uploaded",
+            status=DocumentStatus.UPLOADED,
+            processing_progress=0,
+            current_step="Uploaded",
             version="1.0",
             mime_type=file.content_type or "application/octet-stream"
         )

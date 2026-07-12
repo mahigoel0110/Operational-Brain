@@ -16,6 +16,7 @@ class LLMService:
             api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
             if not api_key:
                 logger.warning("OPENAI_API_KEY not found. LLM service will fail if called.")
+                raise ValueError("OPENAI_API_KEY not found")
             cls._client = AsyncOpenAI(api_key=api_key)
         return cls._client
 

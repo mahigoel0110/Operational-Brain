@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.db.init_db import init_db
+from app.services.ai.graph.neo4j_client import neo4j_client
 from app.api.health import router as health_router
 
 from app.api.user import router as user_router
@@ -16,6 +17,7 @@ from app.api.ai import router as ai_router
 from app.api.interview import router as interview_router
 from app.api.knowledge_gap import router as knowledge_gap_router
 from app.api.copilot import router as copilot_router
+from app.api.graph import router as graph_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,11 +25,14 @@ async def lifespan(app: FastAPI):
     try:
         await init_db()
         print("MongoDB Connected!")
+        print("Connecting to Neo4j...")
+        await neo4j_client.connect()
     except Exception as e:
         print(f"Warning: Failed to connect to MongoDB - {str(e)}")
         print("App will continue to run but database operations may fail")
     yield
     print("Application shutting down...")
+    await neo4j_client.close()
 
 
 app = FastAPI(
@@ -105,4 +110,10 @@ app.include_router(
     copilot_router,
     prefix="/copilot",
     tags=["Industrial Intelligence Copilot"]
+)
+
+app.include_router(
+    graph_router,
+    prefix="/api/graph",
+    tags=["Knowledge Graph Explorer"]
 )
