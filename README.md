@@ -129,7 +129,7 @@ http://localhost:3000
 ```
 
 
-## 🚧 Future Enhancements
+## 🚧 Important Features
 
 - GraphRAG Integration
 - P&ID Drawing Intelligence
