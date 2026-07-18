@@ -37,13 +37,16 @@ class ConfidenceEngine:
         if knowledge_missing or not chunks:
             return 0
 
-        # Base: average similarity × 100
+        # Base: Calibrated mapping from raw vector score to confidence %
         scores = [float(c.get("score", 0.0)) for c in chunks if c.get("score")]
         if not scores:
             return 10
 
         avg_score = sum(scores) / len(scores)
-        confidence = avg_score * 100
+        
+        # Convert typical Qdrant distances (e.g. 0.3 - 0.7) to human realistic confidence (70% - 95%)
+        calibrated_base = 65 + (avg_score * 40)
+        confidence = calibrated_base
 
         # Bonus: multiple source documents
         distinct_docs = len({c.get("document_id") for c in chunks})

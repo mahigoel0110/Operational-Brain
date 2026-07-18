@@ -29,6 +29,10 @@ class DocumentPipeline:
         current_step: str,
         error: str | None = None,
     ):
+        doc_exists = await DocumentModel.get(document.id)
+        if not doc_exists:
+            raise ValueError("Document was deleted during processing.")
+            
         document.status = status
         document.processing_progress = progress
         document.current_step = current_step
@@ -178,25 +182,34 @@ class DocumentPipeline:
                 + metadata.get("completeness_score", 0.70)
             ) / 2
 
-            doc.status = DocumentStatus.READY
-            doc.processing_progress = 100
-            doc.current_step = "Completed"
-            doc.processing_completed_at = datetime.now(UTC)
             doc.metadata = metadata
             doc.department = metadata.get("department", "General")
             doc.knowledge_score = round(knowledge_score, 2)
+            doc.processing_completed_at = datetime.now(UTC)
             doc.error_message = None
-            doc.updated_at = datetime.now(UTC)
 
-            await doc.save()
+            await DocumentPipeline.update_status(
+                document=doc,
+                status=DocumentStatus.READY,
+                progress=100,
+                current_step="Completed"
+            )
             logger.info(f"Pipeline completed successfully for {doc.name}")
 
         except Exception as e:
             logger.exception(e)
-            await DocumentPipeline.update_status(
-                document=doc,
-                status=DocumentStatus.FAILED,
-                progress=doc.processing_progress,
-                current_step="Failed",
-                error=str(e),
-            )
+            if str(e) == "Document was deleted during processing.":
+                logger.info(f"Pipeline aborted: Document {document_id} was deleted.")
+                return
+                
+            try:
+                await DocumentPipeline.update_status(
+                    document=doc,
+                    status=DocumentStatus.FAILED,
+                    progress=doc.processing_progress,
+                    current_step="Failed",
+                    error=str(e),
+                )
+            except ValueError as ve:
+                if str(ve) == "Document was deleted during processing.":
+                    pass

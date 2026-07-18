@@ -27,8 +27,8 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# How many chunks to retrieve from Qdrant
-CHUNK_LIMIT = 25
+# How many chunks to return to the LLM (keep tight for focused RAG)
+CHUNK_LIMIT = 5
 
 # Minimum score to include a chunk
 MIN_SCORE = 0.20

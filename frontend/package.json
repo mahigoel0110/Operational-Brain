@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@tailwindcss/typography": "^0.5.20",
     "@tanstack/react-query": "^5.101.2",
     "axios": "^1.18.1",
     "cytoscape": "^3.34.0",
@@ -18,7 +19,9 @@
     "react": "19.2.4",
     "react-cytoscapejs": "^2.0.0",
     "react-dom": "19.2.4",
-    "recharts": "^3.9.2"
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.9.2",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

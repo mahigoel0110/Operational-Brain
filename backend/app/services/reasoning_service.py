@@ -35,14 +35,26 @@ FALLBACK_RESPONSE = {
 def _format_chunks(chunks: List[Dict[str, Any]]) -> str:
     if not chunks:
         return "No document knowledge available."
+    
+    # Group by document title
+    grouped = {}
+    for chunk in chunks[:10]: # Process up to 10 chunks safely
+        title = chunk.get("title", "Unknown Document")
+        if title not in grouped:
+            grouped[title] = []
+        grouped[title].append(chunk)
+        
     lines = []
-    for i, chunk in enumerate(chunks[:6], 1):
-        title = chunk.get("title", "Unknown")
-        page = chunk.get("page_number", 1)
-        score = chunk.get("score", 0)
-        text = chunk.get("text", "")[:MAX_CHUNK_CHARS]
-        lines.append(f"[Source {i}] {title} (page {page}, relevance {score:.2f}):\n{text}")
-    return "\n\n".join(lines)
+    for title, doc_chunks in grouped.items():
+        lines.append(f"Document: {title}")
+        for chunk in doc_chunks:
+            page = chunk.get("page_number", 1)
+            score = chunk.get("score", 0)
+            text = chunk.get("text", "")[:MAX_CHUNK_CHARS].strip()
+            lines.append(f"  --- Page {page} (Relevance {score:.2f}) ---")
+            lines.append(f"  {text}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def _format_interview(answers: List[Dict[str, Any]]) -> str:
@@ -202,15 +214,17 @@ class ReasoningService:
         except Exception as e:
             logger.error(f"ReasoningService LLM call failed: {e}")
 
-            # Graceful fallback — answer from first chunk's text
+            # Fallback: Return the raw retrieved chunks exactly as they are
             if chunks:
-                best = chunks[0]
+                lines = []
+                for chunk in chunks:
+                    title = chunk.get("title", "Unknown Document")
+                    text = chunk.get("text", "")
+                    lines.append(f"### {title}\n{text}")
+                
                 return {
-                    "answer": (
-                        f"Based on '{best.get('title', 'uploaded documents')}': "
-                        f"{best.get('text', '')[:400]}"
-                    ),
-                    "reasoning": "LLM generation failed — showing the most relevant document excerpt directly.",
+                    "answer": "\n\n".join(lines),
+                    "reasoning": "LLM generation failed (e.g. missing API key) — returning raw chunks directly.",
                     "knowledge_missing": False,
                 }
             return FALLBACK_RESPONSE

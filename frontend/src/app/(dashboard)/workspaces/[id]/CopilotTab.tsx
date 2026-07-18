@@ -8,6 +8,8 @@ import React, {
 } from "react";
 import { api } from "../../../../lib/api";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Send,
   Brain,
@@ -265,10 +267,12 @@ function ResponseCard({ entry }: { entry: ConversationEntry }) {
       </div>
 
       {/* Answer */}
-      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4 prose prose-invert prose-sm max-w-none">
         {response.knowledge_missing ? (
           <div>
-            <p className="text-sm text-slate-300 leading-relaxed">{response.answer}</p>
+            <div className="text-sm text-slate-300 leading-relaxed">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{response.answer}</ReactMarkdown>
+            </div>
             {response.missing_explanation && (
               <p className="text-xs text-slate-500 mt-2 italic">
                 {response.missing_explanation}
@@ -276,7 +280,9 @@ function ResponseCard({ entry }: { entry: ConversationEntry }) {
             )}
           </div>
         ) : (
-          <p className="text-sm text-slate-200 leading-relaxed">{response.answer}</p>
+          <div className="text-sm text-slate-200 leading-relaxed">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{response.answer}</ReactMarkdown>
+          </div>
         )}
       </div>
 
