@@ -18,6 +18,7 @@ from app.api.interview import router as interview_router
 from app.api.knowledge_gap import router as knowledge_gap_router
 from app.api.copilot import router as copilot_router
 from app.api.graph import router as graph_router
+from app.api.maintenance import router as maintenance_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -116,4 +117,10 @@ app.include_router(
     graph_router,
     prefix="/api/graph",
     tags=["Knowledge Graph Explorer"]
+)
+
+app.include_router(
+    maintenance_router,
+    prefix="/maintenance",
+    tags=["Maintenance Intelligence"]
 )

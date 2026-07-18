@@ -14,6 +14,7 @@ import CopilotTab from "./CopilotTab";
 import KnowledgeGapTab from "./KnowledgeGapTab";
 import InterviewTab from "./InterviewTab";
 import GraphTab from "./GraphTab";
+import MaintenanceTab from "./MaintenanceTab";
 
 interface DocumentItem {
   id: string;
@@ -294,7 +295,15 @@ export default function WorkspaceDetailPage() {
     );
   }
 
-  if (["maintenance", "compliance", "lessons", "reports", "alerts", "settings"].includes(currentModule)) {
+  if (currentModule === "maintenance") {
+    return (
+      <div className="animate-in fade-in duration-300 h-full">
+        <MaintenanceTab workspaceId={workspaceId} />
+      </div>
+    );
+  }
+
+  if (["compliance", "lessons", "reports", "alerts", "settings"].includes(currentModule)) {
     return (
       <PlaceholderModule 
         title={`${currentModule.charAt(0).toUpperCase() + currentModule.slice(1)} Module`} 
