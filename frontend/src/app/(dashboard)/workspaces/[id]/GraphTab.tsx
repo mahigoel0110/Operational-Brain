@@ -56,11 +56,11 @@ export default function GraphTab({ workspaceId }: GraphTabProps) {
       if (res.data && res.data.nodes && res.data.nodes.length > 0) {
         setData(res.data);
       } else {
-        setData(mockGraphData());
+        setData({ nodes: [], edges: [] });
       }
     } catch (err) {
       console.error("Error fetching graph:", err);
-      setData(mockGraphData());
+      setData({ nodes: [], edges: [] });
     } finally {
       setLoading(false);
     }
@@ -151,18 +151,28 @@ export default function GraphTab({ workspaceId }: GraphTabProps) {
       />
 
       {/* 2. Center Graph (50%) */}
-      <div className="w-[50%] flex-1 relative min-h-0 z-10 shadow-2xl">
-        <GraphCanvas 
-          data={data}
-          filters={filters}
-          layoutName={layoutName}
-          loading={loading}
-          onNodeSelect={handleNodeSelect}
-          onNodeDoubleClick={handleNodeDoubleClick}
-          onBackgroundClick={handleBackgroundClick}
-          onContextMenu={(x, y, node) => setContextMenu({ x, y, node })}
-          cyRefHook={(cy) => (cyRef.current = cy)}
-        />
+      <div className="w-[50%] flex-1 relative min-h-0 z-10 shadow-2xl glass-card overflow-hidden">
+        {data.nodes.length === 0 && !loading ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-12 text-center bg-slate-900/50">
+             <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4 border border-slate-700">
+               <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-500"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8"/><path d="m3 21 8-8"/><path d="m21 21-8-8"/></svg>
+             </div>
+             <h3 className="text-lg font-bold text-slate-300 mb-2">No Entity Relationships Found</h3>
+             <p className="text-sm text-slate-500 max-w-sm">No graph has been generated for the selected documents. Continue uploading documents to build the knowledge graph.</p>
+          </div>
+        ) : (
+          <GraphCanvas 
+            data={data}
+            filters={filters}
+            layoutName={layoutName}
+            loading={loading}
+            onNodeSelect={handleNodeSelect}
+            onNodeDoubleClick={handleNodeDoubleClick}
+            onBackgroundClick={handleBackgroundClick}
+            onContextMenu={(x, y, node) => setContextMenu({ x, y, node })}
+            cyRefHook={(cy) => (cyRef.current = cy)}
+          />
+        )}
       </div>
 
       {/* 3. Right Panel (25%) */}

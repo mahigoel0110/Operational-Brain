@@ -245,258 +245,223 @@ function CitationCard({ citation, index }: { citation: Citation; index: number }
   );
 }
 
-function ResponseCard({ entry }: { entry: ConversationEntry }) {
+function ResponseCard({ entry, isDemoMode = true }: { entry: ConversationEntry, isDemoMode?: boolean }) {
   const { response } = entry;
-  const [showCitations, setShowCitations] = useState(false);
-  const [showReasoning, setShowReasoning] = useState(false);
+  
+  // Demo mode staggered animation variants
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: isDemoMode ? 0.3 : 0.1 }
+    }
+  };
+  
+  const itemVariants = {
+    hidden: { opacity: 0, y: 15 },
+    visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+  };
+
   const hasRisk = response.risk_level !== "none";
   const hasFailures = response.failure_patterns.length > 0;
   const hasCompliance = response.compliance_signals.length > 0;
+  
+  // Calculate unique documents used
+  const uniqueDocs = Array.from(new Set(response.citations.filter(c => c.source_type === 'document').map(c => c.title)));
+  const multipleDocs = uniqueDocs.length > 1;
 
   return (
-    <div className="space-y-3">
-      {/* Header badges */}
-      <div className="flex flex-wrap gap-2 items-center">
-        <ConfidenceBadge confidence={response.confidence} />
-        {hasRisk && <RiskBadge level={response.risk_level} />}
-        {response.knowledge_missing && (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border text-slate-400 border-slate-700 bg-slate-800/50">
-            <AlertCircle className="w-3 h-3" /> Knowledge Gap
-          </span>
-        )}
-      </div>
-
-      {/* Answer */}
-      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4 prose prose-invert prose-sm max-w-none">
-        {response.knowledge_missing ? (
-          <div>
-            <div className="text-sm text-slate-300 leading-relaxed">
+    <motion.div 
+      className="space-y-4"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
+      {/* 1. SUMMARY */}
+      <motion.div variants={itemVariants} className="bg-slate-900/50 border border-slate-800/80 rounded-xl overflow-hidden shadow-lg">
+        <div className="px-4 py-2 bg-slate-900/80 border-b border-slate-800/80 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Brain className="w-4 h-4 text-indigo-400" />
+            <span className="text-xs font-black uppercase tracking-widest text-slate-400">Executive Summary</span>
+          </div>
+          <ConfidenceBadge confidence={response.confidence} />
+        </div>
+        <div className="p-5 prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed font-medium">
+          {response.knowledge_missing ? (
+            <div>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{response.answer}</ReactMarkdown>
+              {response.missing_explanation && (
+                <p className="text-xs text-slate-500 mt-2 italic bg-slate-950/50 p-3 rounded-lg border border-slate-800">
+                  {response.missing_explanation}
+                </p>
+              )}
             </div>
-            {response.missing_explanation && (
-              <p className="text-xs text-slate-500 mt-2 italic">
-                {response.missing_explanation}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="text-sm text-slate-200 leading-relaxed">
+          ) : (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{response.answer}</ReactMarkdown>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </motion.div>
 
-      {/* Reasoning toggle */}
-      {response.reasoning && (
-        <button
-          onClick={() => setShowReasoning((v) => !v)}
-          className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
-        >
-          <Brain className="w-3.5 h-3.5" />
-          {showReasoning ? "Hide reasoning" : "Show reasoning"}
-          {showReasoning ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        </button>
+      {/* 2. EVIDENCE */}
+      {response.citations.length > 0 && (
+        <motion.div variants={itemVariants} className="bg-slate-950 border border-slate-800/50 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 bg-emerald-950/20 border-b border-emerald-900/30 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-black uppercase tracking-widest text-emerald-400/80">Grounding Evidence</span>
+            </div>
+          </div>
+          <div className="p-4 space-y-3">
+            {multipleDocs && (
+              <div className="mb-4 inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-300 text-xs font-bold">
+                <Network className="w-3.5 h-3.5" />
+                Combined knowledge from {uniqueDocs.length} uploaded documents
+              </div>
+            )}
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {response.citations.map((c, i) => (
+                <div key={i} className="bg-slate-900 border border-slate-800 rounded-lg p-3 relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-1 h-full bg-emerald-500/30" />
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-xs font-bold text-slate-300 truncate pr-4">{c.title}</span>
+                    <span className="text-[10px] text-emerald-500/80 font-mono bg-emerald-500/10 px-1.5 rounded">{(c.score * 100).toFixed(0)}% match</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 italic line-clamp-3 mb-2 leading-relaxed">"{c.excerpt}"</p>
+                  <div className="flex gap-2 text-[10px] text-slate-500 font-mono">
+                    {c.page_number > 0 && <span className="bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">Page {c.page_number}</span>}
+                    {c.section && <span className="bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 truncate">{c.section}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </motion.div>
       )}
-      <AnimatePresence>
-        {showReasoning && response.reasoning && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="bg-indigo-950/20 border border-indigo-900/30 rounded-xl p-3">
-              <p className="text-[11px] text-indigo-300/80 leading-relaxed italic">
-                {response.reasoning}
-              </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* 3. POSSIBLE CAUSES */}
+        {hasFailures && (
+          <motion.div variants={itemVariants} className="border border-orange-500/20 bg-orange-950/10 rounded-xl overflow-hidden">
+             <div className="px-4 py-2 border-b border-orange-500/10 flex items-center gap-2 bg-orange-950/20">
+              <TrendingUp className="w-4 h-4 text-orange-400" />
+              <span className="text-xs font-black uppercase tracking-widest text-orange-400/80">Possible Causes</span>
+            </div>
+            <div className="p-4 space-y-3">
+              {response.failure_patterns.map((fp, i) => (
+                <div key={i} className="bg-slate-900/50 rounded p-2.5 border border-slate-800">
+                  <p className="text-xs font-bold text-orange-300 mb-1">{fp.pattern}</p>
+                  <p className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5">
+                    <FileText className="w-3 h-3" />
+                    {fp.source_documents.join(", ")}
+                  </p>
+                </div>
+              ))}
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
 
-      {/* Sources consulted */}
-      {response.sources_consulted && (
-        <SourcesPanel sources={response.sources_consulted} />
-      )}
-
-      {/* Risk signals */}
-      {hasRisk && response.risk_signals.length > 0 && (
-        <div
-          className={`border rounded-xl p-4 ${
-            response.risk_level === "high"
-              ? "border-red-500/30 bg-red-950/20"
-              : response.risk_level === "medium"
-              ? "border-amber-500/30 bg-amber-950/20"
-              : "border-blue-500/30 bg-blue-950/20"
-          }`}
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <ShieldAlert
-              className={`w-4 h-4 ${
-                response.risk_level === "high"
-                  ? "text-red-400"
-                  : response.risk_level === "medium"
-                  ? "text-amber-400"
-                  : "text-blue-400"
-              }`}
-            />
-            <p className="text-xs font-bold text-slate-300">
-              Operational Risk Detected —{" "}
-              <span
-                className={
-                  response.risk_level === "high"
-                    ? "text-red-400"
-                    : response.risk_level === "medium"
-                    ? "text-amber-400"
-                    : "text-blue-400"
-                }
-              >
-                {response.risk_level.toUpperCase()}
-              </span>
-            </p>
-          </div>
-          <ul className="space-y-1">
-            {response.risk_signals.map((sig, i) => (
-              <li key={i} className="text-xs text-slate-400 flex items-start gap-1.5">
-                <span className="text-slate-600 mt-0.5">•</span>
-                {sig}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Failure patterns */}
-      {hasFailures && (
-        <div className="border border-orange-500/20 bg-orange-950/10 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="w-4 h-4 text-orange-400" />
-            <p className="text-xs font-bold text-slate-300">Failure Intelligence</p>
-          </div>
-          {response.failure_patterns.map((fp, i) => (
-            <div key={i} className="mb-3 last:mb-0">
-              <p className="text-xs font-semibold text-orange-300">
-                {fp.equipment} — {fp.pattern}
-              </p>
-              <div className="mt-1 space-y-0.5">
-                {fp.source_documents.map((doc, j) => (
-                  <p key={j} className="text-[11px] text-slate-500 flex items-center gap-1">
-                    <FileText className="w-3 h-3 flex-shrink-0" />
-                    {doc}
-                  </p>
-                ))}
-              </div>
+        {/* 4. RECOMMENDATIONS */}
+        {response.recommended_actions.length > 0 && (
+          <motion.div variants={itemVariants} className="border border-blue-500/20 bg-blue-950/10 rounded-xl overflow-hidden">
+             <div className="px-4 py-2 border-b border-blue-500/10 flex items-center gap-2 bg-blue-950/20">
+              <ClipboardCheck className="w-4 h-4 text-blue-400" />
+              <span className="text-xs font-black uppercase tracking-widest text-blue-400/80">Recommendations</span>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Recommended actions */}
-      {response.recommended_actions.length > 0 && (
-        <div className="border border-emerald-500/20 bg-emerald-950/10 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <ClipboardCheck className="w-4 h-4 text-emerald-400" />
-            <p className="text-xs font-bold text-slate-300">Recommended Actions</p>
-          </div>
-          <ol className="space-y-1.5">
-            {response.recommended_actions.map((action, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
-                <span className="text-emerald-500 font-bold flex-shrink-0">{i + 1}.</span>
-                {action}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-
-      {/* Compliance signals */}
-      {hasCompliance && (
-        <div className="border border-purple-500/20 bg-purple-950/10 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <ShieldAlert className="w-4 h-4 text-purple-400" />
-            <p className="text-xs font-bold text-slate-300">Compliance Check</p>
-          </div>
-          <div className="space-y-2">
-            {response.compliance_signals.map((cs, i) => (
-              <div key={i} className="flex items-start gap-2">
-                {cs.status === "present" ? (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                ) : (
-                  <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
-                )}
-                <div>
-                  <span className="text-xs font-semibold text-slate-300">{cs.standard}</span>
-                  <span
-                    className={`ml-2 text-[10px] font-bold ${
-                      cs.status === "present" ? "text-emerald-400" : "text-amber-400"
-                    }`}
-                  >
-                    {cs.status === "present" ? "✓ Present" : "⚠ Missing"}
-                  </span>
-                  <p className="text-[11px] text-slate-500 mt-0.5">{cs.note}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Citations */}
-      {response.citations.length > 0 && (
-        <div>
-          <button
-            onClick={() => setShowCitations((v) => !v)}
-            className="flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors mb-2"
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            {response.citations.length} Source{response.citations.length !== 1 ? "s" : ""} Used
-            {showCitations ? (
-              <ChevronUp className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" />
-            )}
-          </button>
-          <AnimatePresence>
-            {showCitations && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="space-y-2 overflow-hidden"
-              >
-                {response.citations.map((c, i) => (
-                  <CitationCard key={c.chunk_id || i} citation={c} index={i} />
+            <div className="p-4">
+              <ol className="space-y-2">
+                {response.recommended_actions.map((action, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-xs text-slate-300 bg-slate-900/40 p-2.5 rounded border border-slate-800/50">
+                    <span className="text-blue-500 font-black mt-0.5">{i + 1}.</span>
+                    <span className="leading-relaxed">{action}</span>
+                  </li>
                 ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
+              </ol>
+            </div>
+          </motion.div>
+        )}
+      </div>
 
-      {/* Related metadata */}
-      {(response.related.equipment.length > 0 ||
-        response.related.departments.length > 0 ||
-        response.related.standards.length > 0) && (
-        <div className="flex flex-wrap gap-2 pt-1">
-          {response.related.equipment.map((e) => (
-            <span key={e} className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
-              <Wrench className="w-2.5 h-2.5 inline mr-1" />
-              {e}
-            </span>
-          ))}
-          {response.related.departments.map((d) => (
-            <span key={d} className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-900/30 text-indigo-400 border border-indigo-800/30">
-              {d}
-            </span>
-          ))}
-          {response.related.standards.map((s) => (
-            <span key={s} className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-900/20 text-purple-400 border border-purple-800/30">
-              {s}
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* 5. SAFETY */}
+        {hasRisk && response.risk_signals.length > 0 && (
+          <motion.div variants={itemVariants} className="border border-red-500/20 bg-red-950/10 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 border-b border-red-500/10 flex items-center justify-between bg-red-950/20">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-red-400" />
+                <span className="text-xs font-black uppercase tracking-widest text-red-400/80">Safety Signals</span>
+              </div>
+              <RiskBadge level={response.risk_level} />
+            </div>
+            <div className="p-4">
+              <ul className="space-y-2">
+                {response.risk_signals.map((sig, i) => (
+                  <li key={i} className="text-xs text-slate-300 flex items-start gap-2 bg-slate-900/40 p-2 rounded border border-red-900/30">
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-500/70 mt-0.5 shrink-0" />
+                    <span>{sig}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </motion.div>
+        )}
 
+        {/* 6. COMPLIANCE */}
+        {hasCompliance && (
+          <motion.div variants={itemVariants} className="border border-purple-500/20 bg-purple-950/10 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 border-b border-purple-500/10 flex items-center gap-2 bg-purple-950/20">
+              <CheckCircle2 className="w-4 h-4 text-purple-400" />
+              <span className="text-xs font-black uppercase tracking-widest text-purple-400/80">Compliance Check</span>
+            </div>
+            <div className="p-4 space-y-2">
+              {response.compliance_signals.map((cs, i) => (
+                <div key={i} className="flex items-start gap-2.5 bg-slate-900/40 p-2.5 rounded border border-slate-800">
+                  {cs.status === "present" ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  )}
+                  <div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-bold text-slate-300">{cs.standard}</span>
+                      <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 rounded ${cs.status === "present" ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+                        {cs.status === "present" ? "Present" : "Missing"}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500">{cs.note}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </div>
+
+      {/* 7. RELATED DOCUMENTS / METADATA */}
+      <motion.div variants={itemVariants}>
+        {(response.related.equipment.length > 0 ||
+          response.related.departments.length > 0 ||
+          response.related.standards.length > 0) && (
+          <div className="flex flex-wrap gap-2 py-2">
+            {response.related.equipment.map((e) => (
+              <span key={e} className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-900 text-slate-300 border border-slate-800">
+                <Wrench className="w-3 h-3 inline mr-1.5 opacity-70" />
+                {e}
+              </span>
+            ))}
+            {response.related.departments.map((d) => (
+              <span key={d} className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-900/20 text-indigo-300 border border-indigo-800/30">
+                {d}
+              </span>
+            ))}
+            {response.related.standards.map((s) => (
+              <span key={s} className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-purple-900/20 text-purple-300 border border-purple-800/30">
+                {s}
+              </span>
+            ))}
+          </div>
+        )}
+      </motion.div>
       {/* Follow-up chips */}
       {response.suggestions.length > 0 && (
         <div className="pt-1">
@@ -514,7 +479,7 @@ function ResponseCard({ entry }: { entry: ConversationEntry }) {
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 

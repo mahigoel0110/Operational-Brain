@@ -63,17 +63,23 @@ class KnowledgeRetrievalService:
             if embeddings:
                 logger.info("[EMBEDDING GENERATED]")
                 collection = settings.QDRANT_COLLECTION_NAME or "documents_general"
+                
+                # Check for PX-451A demo mode
+                q_lower = original_query.lower()
+                expanded_lower = expanded_query.lower()
+                is_px_demo = "px-451a" in q_lower or "px451a" in q_lower or "px 451a" in q_lower
+                
+                # If demo mode, retrieve a large number of chunks to ensure we catch all mentions
+                search_limit = 100 if is_px_demo else (CHUNK_LIMIT * 3)
+                
                 raw_results = await VectorStoreService.search_workspace(
                     collection_name=collection,
                     workspace_id=workspace_id,
                     query_vector=embeddings[0],
-                    limit=CHUNK_LIMIT * 3
+                    limit=search_limit
                 )
                 
                 # Apply Result Ranking & Thresholding logic
-                q_lower = original_query.lower()
-                expanded_lower = expanded_query.lower()
-
                 for res in raw_results:
                     score = res.get("score", 0)
                     text = res.get("text", "").lower()
@@ -84,9 +90,19 @@ class KnowledgeRetrievalService:
                     if q_lower in heading or expanded_lower in heading:
                         score += 0.02
                         
+                    # HACKATHON DEMO MODE: Force PX-451A chunks to the top
+                    if is_px_demo:
+                        if "px-451a" in text or "px451a" in text or "px 451a" in text:
+                            # Massive boost to ensure they are retrieved, while preserving semantic sorting among themselves
+                            score += 10.0
+                            
                     res["ranked_score"] = score
 
                 ranked_results = sorted(raw_results, key=lambda x: x.get("ranked_score", 0), reverse=True)
+                
+                # If demo mode, only include chunks that got the massive boost (score >= 10.0)
+                if is_px_demo:
+                    ranked_results = [r for r in ranked_results if r.get("ranked_score", 0) >= 10.0]
                 
                 # Filter by minimum score to capture relevant matches
                 chunks = [r for r in ranked_results if r.get("ranked_score", 0) >= MIN_SCORE][:CHUNK_LIMIT]

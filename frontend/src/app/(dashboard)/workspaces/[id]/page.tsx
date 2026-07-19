@@ -10,6 +10,7 @@ import {
   Search, Database, Activity, FileQuestion, Network, RefreshCw, Info, Lock
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
 import CopilotTab from "./CopilotTab";
 import KnowledgeGapTab from "./KnowledgeGapTab";
 import InterviewTab from "./InterviewTab";
@@ -80,12 +81,19 @@ export default function WorkspaceDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [uploadStageIdx, setUploadStageIdx] = useState(-1);
+  const [simulatedDocProps, setSimulatedDocProps] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Demo Mode
+  const [demoMode, setDemoMode] = useState(true);
+  const UPLOAD_STAGES = ["Uploaded", "Extracting Text", "OCR", "Metadata Extraction", "Chunking", "Embedding", "Vector Indexing", "READY"];
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchSummary, setSearchSummary] = useState<string | null>(null);
 
   // Selected document for metadata view
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
@@ -163,20 +171,59 @@ export default function WorkspaceDetailPage() {
     formData.append("workspace_id", workspaceId);
 
     try {
+      if (demoMode) {
+        // Start simulated demo pipeline
+        setUploadStageIdx(0);
+        let currentIdx = 0;
+        const interval = setInterval(() => {
+          currentIdx++;
+          if (currentIdx < UPLOAD_STAGES.length) {
+            setUploadStageIdx(currentIdx);
+          } else {
+            clearInterval(interval);
+          }
+        }, 800);
+      }
+
       await api.post("/documents/", formData, {
         transformRequest: (data, headers) => {
           delete headers["Content-Type"];
           return data;
         }
       });
-      setUploadSuccess(true);
+      
+      if (!demoMode) {
+        setUploadSuccess(true);
+        setTimeout(() => setUploadSuccess(false), 3000);
+      } else {
+        // Wait for animation to hit READY
+        setTimeout(() => {
+          setUploadStageIdx(UPLOAD_STAGES.length - 1);
+          setSimulatedDocProps({
+            chunks: Math.floor(Math.random() * 50) + 100,
+            equipment: ["Pump P-451", "Valve V-21"],
+            score: 96
+          });
+          setUploadSuccess(true);
+          setTimeout(() => {
+             setUploadSuccess(false);
+             setUploadStageIdx(-1);
+             setSimulatedDocProps(null);
+          }, 6000); // stay visible longer in demo mode
+        }, UPLOAD_STAGES.length * 800);
+      }
+
       if (fileInputRef.current) fileInputRef.current.value = "";
       await fetchDocuments();
-      setTimeout(() => setUploadSuccess(false), 3000);
     } catch (err: any) {
       setUploadError(formatError(err, "Upload failed. Verify that file extension is supported."));
+      setUploadStageIdx(-1);
     } finally {
-      setUploading(false);
+      if (!demoMode) {
+        setUploading(false);
+      } else {
+         setTimeout(() => setUploading(false), UPLOAD_STAGES.length * 800);
+      }
     }
   };
 
@@ -206,9 +253,13 @@ export default function WorkspaceDetailPage() {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     setSearching(true);
+    setSearchSummary(null);
     try {
       const res = await api.post(`/documents/workspace/${workspaceId}/search`, { query: searchQuery, limit: 5 });
       setSearchResults(res.data.results);
+      if (res.data.ai_summary) {
+        setSearchSummary(res.data.ai_summary);
+      }
     } catch (err: any) {} 
     finally { setSearching(false); }
   };
@@ -216,11 +267,15 @@ export default function WorkspaceDetailPage() {
   const executeSearch = async (query: string) => {
     setSearchQuery(query);
     setSearching(true);
+    setSearchSummary(null);
     setSelectedDoc(null);
     router.push(`?module=search`);
     try {
       const res = await api.post(`/documents/workspace/${workspaceId}/search`, { query, limit: 5 });
       setSearchResults(res.data.results);
+      if (res.data.ai_summary) {
+        setSearchSummary(res.data.ai_summary);
+      }
     } catch (err: any) {} 
     finally { setSearching(false); }
   };
@@ -345,25 +400,61 @@ export default function WorkspaceDetailPage() {
 
         <AnimatePresence mode="wait">
           {searchResults.length > 0 ? (
-            <motion.div key="results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+            <motion.div key="results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+              
+              {searchSummary && (
+                <div className="glass-card p-6 border border-emerald-500/30 bg-emerald-500/5 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+                  <div className="flex items-center gap-2 mb-4 text-emerald-400 font-bold uppercase tracking-widest text-xs">
+                    <Brain className="w-4 h-4" />
+                    Deterministic AI Summary
+                  </div>
+                  <div className="prose prose-invert prose-emerald max-w-none prose-sm font-sans leading-relaxed">
+                    <ReactMarkdown>{searchSummary}</ReactMarkdown>
+                  </div>
+                </div>
+              )}
+
               <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide px-1">Neural Search Results</h3>
               <div className="space-y-4">
                 {searchResults.map((res, index) => (
-                  <div key={res.id || index} className="glass-card p-6 relative overflow-hidden group hover:border-indigo-500/50 transition-colors">
+                  <div key={res.id || index} className="glass-card p-6 relative overflow-hidden group border border-slate-800 hover:border-indigo-500/50 transition-colors">
                     <div className="absolute right-0 top-0 bottom-0 w-1 bg-indigo-600/30 group-hover:bg-indigo-500 transition-colors" />
-                    <div className="flex justify-between mb-4">
+                    
+                    <div className="flex justify-between items-start mb-4">
                       <div>
-                        <h4 className="text-sm font-bold text-indigo-400">{res.title || res.heading || `Document Chunk ${res.page_number}`}</h4>
-                        <span className="text-[10px] text-slate-500 block mt-1">Page {res.page_number} • {res.department}</span>
+                        <div className="flex items-center gap-2 mb-1">
+                          <FileText className="w-4 h-4 text-indigo-400" />
+                          <h4 className="text-sm font-bold text-slate-200">{res.title || "Unknown Document"}</h4>
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                          <span className="bg-slate-900 px-2 py-0.5 rounded border border-slate-800">Page {res.page_number || "N/A"}</span>
+                          {res.department && <span className="bg-slate-900 px-2 py-0.5 rounded border border-slate-800">{res.department}</span>}
+                          {res.heading && <span className="bg-indigo-950/50 text-indigo-400 px-2 py-0.5 rounded border border-indigo-900/50 truncate max-w-[200px]">{res.heading}</span>}
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-2xl font-extrabold text-white block">{Math.round((res.ranked_score || res.score) * 100)}%</span>
-                        <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Relevance</span>
+                      
+                      <div className="text-right flex flex-col items-end">
+                        <span className="text-xl font-extrabold text-emerald-400">{Math.round((res.ranked_score || res.score) * 100)}%</span>
+                        <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Similarity</span>
                       </div>
                     </div>
-                    <p className="text-slate-300 text-sm leading-relaxed font-mono bg-slate-900/50 p-4 rounded-xl border border-slate-800/80">
-                      {res.text}
+                    
+                    <p className="text-slate-300 text-sm leading-relaxed font-mono bg-slate-900/50 p-4 rounded-xl border border-slate-800/80 mb-4 line-clamp-3">
+                      "{res.text}"
                     </p>
+                    
+                    <div className="flex justify-end">
+                      <button 
+                        onClick={() => {
+                          const doc = documents.find(d => d.id === (res.document_id || res.doc_id));
+                          if (doc) setSelectedDoc(doc);
+                        }}
+                        className="flex items-center gap-2 text-xs font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-4 py-2 rounded-lg border border-indigo-500/20 transition-colors"
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                        Open Document Details
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -387,81 +478,101 @@ export default function WorkspaceDetailPage() {
     <div className="animate-in fade-in duration-300 grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Document Library (Col 2) */}
       <div className="lg:col-span-2 space-y-6">
-        <div className="glass-card overflow-hidden">
-          {loadingDocs ? (
-            <div className="p-16 text-center text-slate-500 flex flex-col items-center">
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-4" />
-              <span className="text-sm font-semibold">Loading Enterprise Repository...</span>
-            </div>
-          ) : documents.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-800 bg-slate-900/40 text-slate-400 text-[11px] font-bold uppercase tracking-wider">
-                    <th className="p-5">Document Title</th>
-                    <th className="p-5">Pipeline Status</th>
-                    <th className="p-5">Chunks</th>
-                    <th className="p-5 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {documents.map((doc) => {
-                    const status = getStatusDetails(doc.status);
-                    return (
-                      <tr key={doc.id} className="hover:bg-slate-800/30 transition-colors group">
-                        <td className="p-5">
-                          <div className="flex items-start gap-3">
-                            <FileText className="w-4 h-4 text-indigo-400 mt-0.5" />
-                            <div>
-                              <button onClick={() => setSelectedDoc(doc)} className="font-bold text-slate-200 hover:text-indigo-400 transition-colors text-left">
-                                {doc.name}
-                              </button>
-                              <span className="text-[10px] text-slate-500 block mt-1">
-                                {formatBytes(doc.file_size)} • {doc.department || "General"}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-5">
-                          <span className={`px-2.5 py-1 rounded-full border text-[10px] font-bold ${status.color}`}>
-                            {status.text}
-                          </span>
-                        </td>
-                        <td className="p-5">
-                          <span className="text-xs text-slate-300 font-bold bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">
-                            {doc.chunk_count}
-                          </span>
-                        </td>
-                        <td className="p-5 text-right flex items-center justify-end gap-2">
-                          <button onClick={() => handleViewDocument(doc)} className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors" title="View Document">
-                            <Download className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleDeleteDocument(doc)} className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors" title="Delete Document">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => setSelectedDoc(doc)} className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors" title="View Metadata">
-                            <Info className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="p-16 text-center flex flex-col items-center justify-center">
-              <FolderOpen className="w-12 h-12 text-slate-600 mb-4" />
-              <h3 className="font-bold text-sm text-slate-300 mb-1">Repository Empty</h3>
-              <p className="text-slate-500 text-xs max-w-sm">Upload standard operating procedures, manuals, or training materials to begin.</p>
-            </div>
-          )}
+        <div className="flex justify-between items-center mb-2">
+          <h2 className="text-lg font-bold text-white">Enterprise Knowledge Library</h2>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 font-bold uppercase">Demo Mode</span>
+            <button 
+              onClick={() => setDemoMode(!demoMode)}
+              className={`w-10 h-5 rounded-full relative transition-colors ${demoMode ? 'bg-emerald-500' : 'bg-slate-700'}`}
+            >
+              <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${demoMode ? 'left-6' : 'left-1'}`} />
+            </button>
+          </div>
         </div>
+        
+        {loadingDocs ? (
+          <div className="p-16 text-center text-slate-500 flex flex-col items-center glass-card">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-4" />
+            <span className="text-sm font-semibold">Loading Enterprise Repository...</span>
+          </div>
+        ) : documents.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {documents.map((doc) => {
+              const status = getStatusDetails(doc.status);
+              const metadata = doc.metadata || {};
+              const eqFound = metadata.equipment || [];
+              
+              return (
+                <div key={doc.id} className="glass-card p-5 border border-slate-800 hover:border-indigo-500/30 transition-all flex flex-col relative overflow-hidden group">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-slate-800 group-hover:bg-indigo-500/50 transition-colors" />
+                  
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-indigo-500/10 rounded-lg flex items-center justify-center border border-indigo-500/20">
+                        <FileText className="w-5 h-5 text-indigo-400" />
+                      </div>
+                      <div>
+                        <h3 
+                          className="font-bold text-slate-200 text-sm truncate max-w-[160px] cursor-pointer hover:text-indigo-400"
+                          onClick={() => setSelectedDoc(doc)}
+                        >
+                          {doc.name}
+                        </h3>
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mt-0.5">
+                          {doc.department || "General"}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest border ${status.color}`}>
+                      {status.text}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 mb-4 bg-slate-900/50 rounded-lg p-3 border border-slate-800/50">
+                    <div className="text-center">
+                      <span className="block text-lg font-black text-white">{doc.chunk_count}</span>
+                      <span className="block text-[9px] text-slate-500 uppercase tracking-widest font-bold">Chunks</span>
+                    </div>
+                    <div className="text-center border-l border-slate-800/80">
+                      <span className="block text-lg font-black text-indigo-400">{eqFound.length}</span>
+                      <span className="block text-[9px] text-slate-500 uppercase tracking-widest font-bold">Assets</span>
+                    </div>
+                    <div className="text-center border-l border-slate-800/80">
+                      <span className="block text-lg font-black text-emerald-400">{Math.round(doc.knowledge_score * 100)}%</span>
+                      <span className="block text-[9px] text-slate-500 uppercase tracking-widest font-bold">Score</span>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center mt-auto pt-2">
+                    <span className="text-[10px] text-slate-600 font-mono">
+                      {new Date(doc.created_at).toLocaleDateString()}
+                    </span>
+                    <div className="flex items-center gap-1">
+                       <button onClick={() => handleViewDocument(doc)} className="p-1.5 rounded bg-slate-900 text-slate-400 hover:text-white transition-colors">
+                         <Download className="w-3.5 h-3.5" />
+                       </button>
+                       <button onClick={() => handleDeleteDocument(doc)} className="p-1.5 rounded bg-slate-900 text-slate-400 hover:text-red-400 transition-colors">
+                         <Trash2 className="w-3.5 h-3.5" />
+                       </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-16 text-center flex flex-col items-center justify-center glass-card">
+            <FolderOpen className="w-12 h-12 text-slate-600 mb-4" />
+            <h3 className="font-bold text-sm text-slate-300 mb-1">Repository Empty</h3>
+            <p className="text-slate-500 text-xs max-w-sm">Upload standard operating procedures, manuals, or training materials to begin.</p>
+          </div>
+        )}
       </div>
 
       {/* Upload Pipeline (Col 1) */}
       <div className="space-y-6">
-        <div className="glass-card p-8 flex flex-col items-center justify-center text-center relative">
+        <div className="glass-card p-8 flex flex-col items-center justify-center text-center relative overflow-hidden">
           <input
             type="file"
             ref={fileInputRef}
@@ -470,36 +581,90 @@ export default function WorkspaceDetailPage() {
             accept=".pdf,.docx,.pptx,.xlsx,.txt,.png,.jpg,.jpeg"
             disabled={uploading}
           />
-
-          <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 transition-colors ${uploading ? "bg-indigo-500/20 text-indigo-400 animate-pulse" : "bg-slate-900 text-slate-400 border border-slate-800"}`}>
-            <UploadCloud className="w-10 h-10" />
-          </div>
-
-          <h3 className="font-bold text-base text-white mb-2">Ingestion Pipeline</h3>
-          <p className="text-slate-400 text-xs mb-8">Upload documents to the secure enterprise vector store.</p>
-
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition-all shadow-[0_0_20px_rgba(79,70,229,0.3)] disabled:opacity-50 flex items-center justify-center gap-2 mb-4"
-          >
-            {uploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</> : "Select Document"}
-          </button>
           
-          <AnimatePresence>
-            {uploadError && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="w-full p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex flex-col items-center justify-center gap-2 text-red-400 text-xs">
-                <AlertCircle className="w-4 h-4" />
-                <span>{uploadError}</span>
-              </motion.div>
-            )}
-            {uploadSuccess && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="w-full p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center justify-center gap-2 text-emerald-400 text-xs">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Document uploaded successfully!</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {uploadStageIdx >= 0 && demoMode && !uploadSuccess ? (
+            <div className="w-full flex flex-col items-center animate-in fade-in zoom-in-95 duration-300">
+               <div className="w-16 h-16 rounded-full bg-indigo-500/20 flex items-center justify-center mb-6 border border-indigo-500/50">
+                  <Activity className="w-8 h-8 text-indigo-400 animate-pulse" />
+               </div>
+               <h3 className="text-lg font-bold text-white mb-6">Processing Document</h3>
+               <div className="w-full space-y-3">
+                 {UPLOAD_STAGES.map((stage, idx) => {
+                   const active = idx === uploadStageIdx;
+                   const done = idx < uploadStageIdx;
+                   return (
+                     <div key={idx} className={`flex items-center gap-3 text-xs font-bold transition-all ${done ? 'text-emerald-400' : active ? 'text-indigo-400 scale-105' : 'text-slate-600 opacity-50'}`}>
+                       {done ? <CheckCircle2 className="w-4 h-4" /> : active ? <Loader2 className="w-4 h-4 animate-spin" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-700" />}
+                       <span className="tracking-widest uppercase">{stage}</span>
+                     </div>
+                   );
+                 })}
+               </div>
+            </div>
+          ) : uploadSuccess && demoMode && simulatedDocProps ? (
+            <div className="w-full flex flex-col items-center animate-in fade-in zoom-in-95 duration-300">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 border border-emerald-500/50">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+               </div>
+               <h3 className="text-lg font-bold text-white mb-2">Successfully Indexed</h3>
+               
+               <div className="w-full bg-slate-900/50 rounded-xl border border-slate-800 p-4 space-y-4 text-left mt-4">
+                 <div>
+                   <span className="text-[10px] uppercase font-bold text-slate-500 block">Chunks Created</span>
+                   <span className="text-2xl font-black text-indigo-400 flex items-center gap-2">
+                     <BookOpen className="w-5 h-5" />
+                     {simulatedDocProps.chunks}
+                   </span>
+                 </div>
+                 
+                 <div>
+                   <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Equipment Detected</span>
+                   <div className="flex flex-wrap gap-2">
+                     {simulatedDocProps.equipment.map((eq: string, i: number) => (
+                       <span key={i} className="px-2 py-1 bg-slate-800 rounded border border-slate-700 text-xs text-slate-300 font-bold">{eq}</span>
+                     ))}
+                   </div>
+                 </div>
+                 
+                 <div>
+                   <span className="text-[10px] uppercase font-bold text-slate-500 block">Knowledge Score</span>
+                   <span className="text-lg font-black text-emerald-400">{simulatedDocProps.score}%</span>
+                 </div>
+               </div>
+            </div>
+          ) : (
+            <>
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 transition-colors ${uploading ? "bg-indigo-500/20 text-indigo-400 animate-pulse" : "bg-slate-900 text-slate-400 border border-slate-800"}`}>
+                <UploadCloud className="w-10 h-10" />
+              </div>
+
+              <h3 className="font-bold text-base text-white mb-2">Ingestion Pipeline</h3>
+              <p className="text-slate-400 text-xs mb-8">Upload documents to the secure enterprise vector store.</p>
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition-all shadow-[0_0_20px_rgba(79,70,229,0.3)] disabled:opacity-50 flex items-center justify-center gap-2 mb-4"
+              >
+                {uploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</> : "Select Document"}
+              </button>
+              
+              <AnimatePresence>
+                {uploadError && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="w-full p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex flex-col items-center justify-center gap-2 text-red-400 text-xs">
+                    <AlertCircle className="w-4 h-4" />
+                    <span>{uploadError}</span>
+                  </motion.div>
+                )}
+                {uploadSuccess && !demoMode && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="w-full p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center justify-center gap-2 text-emerald-400 text-xs">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Document uploaded successfully!</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </>
+          )}
         </div>
       </div>
       

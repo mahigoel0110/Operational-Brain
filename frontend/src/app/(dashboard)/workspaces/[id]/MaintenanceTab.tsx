@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect } from "react";
 import { api } from "../../../../lib/api";
@@ -208,11 +208,22 @@ export default function MaintenanceTab({ workspaceId }: { workspaceId: string })
             <p>{error}</p>
           </div>
         ) : intelligence ? (
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-10 space-y-6">
+          <motion.div 
+            className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-10 space-y-6"
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: { opacity: 0 },
+              visible: {
+                opacity: 1,
+                transition: { staggerChildren: 0.15 }
+              }
+            }}
+          >
             
             {/* Header Row */}
             <div className="flex gap-6 items-stretch">
-              <div className="glass-card p-6 border border-slate-800 flex-1 flex flex-col justify-center relative overflow-hidden">
+              <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: "spring" } } }} className="glass-card p-6 border border-slate-800 flex-1 flex flex-col justify-center relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-8 opacity-5">
                   <Settings className="w-48 h-48" />
                 </div>
@@ -231,15 +242,17 @@ export default function MaintenanceTab({ workspaceId }: { workspaceId: string })
                     {intelligence.operational_status} • {intelligence.location}
                   </p>
                 </div>
-              </div>
+              </motion.div>
               
-              <CircularGauge value={intelligence.health_score} title="Health Score" />
+              <motion.div variants={{ hidden: { opacity: 0, scale: 0.8 }, visible: { opacity: 1, scale: 1, transition: { type: "spring" } } }}>
+                <CircularGauge value={intelligence.health_score} title="Health Score" />
+              </motion.div>
             </div>
 
             {/* AI Insights & Risk */}
             <div className="grid grid-cols-3 gap-6">
               
-              <div className="col-span-2 glass-card p-6 border border-indigo-500/30 bg-gradient-to-br from-indigo-900/20 to-slate-900/50 relative overflow-hidden">
+              <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: "spring" } } }} className="col-span-2 glass-card p-6 border border-indigo-500/30 bg-gradient-to-br from-indigo-900/20 to-slate-900/50 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
                 <h3 className="text-xs font-black text-indigo-400 mb-4 uppercase tracking-widest flex items-center gap-2">
                   <Zap className="w-4 h-4" /> AI Diagnostics
@@ -258,9 +271,9 @@ export default function MaintenanceTab({ workspaceId }: { workspaceId: string })
                     <p className="text-sm text-indigo-100 font-bold">{intelligence.ai_insights.recommendation}</p>
                   </div>
                 </div>
-              </div>
+              </motion.div>
 
-              <div className="glass-card p-6 border border-slate-800 flex flex-col">
+              <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: "spring" } } }} className="glass-card p-6 border border-slate-800 flex flex-col">
                 <h3 className="text-xs font-black text-slate-400 mb-6 uppercase tracking-widest flex items-center gap-2">
                   <ShieldAlert className="w-4 h-4 text-red-400" /> Failure Risks
                 </h3>
@@ -284,27 +297,27 @@ export default function MaintenanceTab({ workspaceId }: { workspaceId: string })
                     <p className="text-xs text-slate-500 italic">No significant failure risks detected.</p>
                   )}
                 </div>
-              </div>
+              </motion.div>
             </div>
 
             {/* KPIs & Compliance */}
-            <div className="grid grid-cols-4 gap-4">
+            <motion.div variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }} className="grid grid-cols-4 gap-4">
               {[
                 { label: "MTBF", value: intelligence.kpis.mtbf },
                 { label: "Est. MTTR", value: intelligence.kpis.mttr },
                 { label: "Inspection Compliance", value: intelligence.kpis.inspection_compliance },
                 { label: "Maintenance Readiness", value: intelligence.kpis.maintenance_readiness }
               ].map((kpi, i) => (
-                <div key={i} className="glass-card p-5 border border-slate-800 flex flex-col items-center justify-center text-center">
+                <motion.div key={i} variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="glass-card p-5 border border-slate-800 flex flex-col items-center justify-center text-center">
                   <span className="text-2xl font-black text-white mb-1">{kpi.value}</span>
                   <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{kpi.label}</span>
-                </div>
+                </motion.div>
               ))}
-            </div>
+            </motion.div>
 
             <div className="grid grid-cols-2 gap-6">
               {/* Actions */}
-              <div className="glass-card p-6 border border-slate-800">
+              <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: "spring" } } }} className="glass-card p-6 border border-slate-800">
                 <h3 className="text-xs font-black text-slate-400 mb-6 uppercase tracking-widest flex items-center gap-2">
                   <Wrench className="w-4 h-4 text-indigo-400" /> Prescriptive Actions
                 </h3>
@@ -321,10 +334,10 @@ export default function MaintenanceTab({ workspaceId }: { workspaceId: string })
                      <p className="text-xs text-slate-500 italic">No recommended actions.</p>
                   )}
                 </div>
-              </div>
+              </motion.div>
 
               {/* Checklist & Compliance */}
-              <div className="glass-card p-6 border border-slate-800 flex flex-col">
+              <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: "spring" } } }} className="glass-card p-6 border border-slate-800 flex flex-col">
                 <h3 className="text-xs font-black text-slate-400 mb-6 uppercase tracking-widest flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Compliance & Inspection
                 </h3>
@@ -352,13 +365,13 @@ export default function MaintenanceTab({ workspaceId }: { workspaceId: string })
                     <p className="text-xs text-slate-500 italic">No inspection checklist found.</p>
                   )}
                 </div>
-              </div>
+              </motion.div>
             </div>
 
             {/* Timeline & Parts */}
             <div className="grid grid-cols-2 gap-6">
               
-              <div className="glass-card p-6 border border-slate-800">
+              <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: "spring" } } }} className="glass-card p-6 border border-slate-800">
                 <h3 className="text-xs font-black text-slate-400 mb-6 uppercase tracking-widest flex items-center gap-2">
                   <Clock className="w-4 h-4 text-indigo-400" /> Maintenance Timeline
                 </h3>
@@ -373,9 +386,9 @@ export default function MaintenanceTab({ workspaceId }: { workspaceId: string })
                      <p className="text-xs text-slate-500 italic">No timeline available.</p>
                   )}
                 </div>
-              </div>
+              </motion.div>
 
-              <div className="glass-card p-6 border border-slate-800">
+              <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: "spring" } } }} className="glass-card p-6 border border-slate-800">
                 <h3 className="text-xs font-black text-slate-400 mb-6 uppercase tracking-widest flex items-center gap-2">
                   <Box className="w-4 h-4 text-indigo-400" /> Required Spare Parts
                 </h3>
@@ -403,11 +416,11 @@ export default function MaintenanceTab({ workspaceId }: { workspaceId: string })
                 ) : (
                   <p className="text-xs text-slate-500 italic">No spare parts identified.</p>
                 )}
-              </div>
+              </motion.div>
             </div>
 
             {/* Evidence Accordion */}
-            <div className="glass-card border border-slate-800 overflow-hidden">
+            <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { type: "spring" } } }} className="glass-card border border-slate-800 overflow-hidden">
               <button 
                 onClick={() => setExpandedEvidence(!expandedEvidence)}
                 className="w-full p-6 flex justify-between items-center bg-slate-900/50 hover:bg-slate-800/50 transition-colors"
@@ -452,10 +465,10 @@ export default function MaintenanceTab({ workspaceId }: { workspaceId: string })
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+            </motion.div>
             
             <div className="h-8" />
-          </div>
+          </motion.div>
         ) : null}
       </div>
     </div>

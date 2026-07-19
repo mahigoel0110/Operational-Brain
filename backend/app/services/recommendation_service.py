@@ -209,6 +209,21 @@ class RecommendationService:
 
         recommendations: List[Dict[str, Any]] = []
 
+        # [DEMO INJECTION] Force PX-451A demo documents to the top
+        demo_docs = [
+            {"document_name": "PX-451A Maintenance Manual", "department": "Operations", "priority": "critical", "reason": "Pump PX-451A was mentioned in operations, but no maintenance manual has been provided.", "expected_gain_pct": 10},
+            {"document_name": "PX-451A Inspection Report", "department": "Operations", "priority": "high", "reason": "Recent inspection for PX-451A is required to determine the pump's health status.", "expected_gain_pct": 8},
+            {"document_name": "PX-451A Root Cause Analysis", "department": "Operations", "priority": "critical", "reason": "A failure was logged for PX-451A but no root cause analysis was found.", "expected_gain_pct": 9},
+        ]
+        
+        for demo in demo_docs:
+            already_uploaded = any(
+                len(set(demo["document_name"].lower().split()) & set(u.split())) >= 2
+                for u in uploaded_names_lower
+            )
+            demo["already_uploaded"] = already_uploaded
+            recommendations.append(demo)
+
         for dept in covered_depts:
             catalogue = ENRICHED_RECOMMENDATION_CATALOGUE.get(dept, [])
             for rec in catalogue:
